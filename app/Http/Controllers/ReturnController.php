@@ -3,101 +3,65 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use App\Returns;
 use App\Booking;
-use App\Client;
-use App\Car;
+use App\Payment;
 use DateTime;
+use App\Car;
+use Carbon\Carbon;
 
-class ReturnController extends Controller
+class returnController extends Controller
 {
     public function index(){
-    	$data['menu'] = 6;
-    	$data['title'] = 'Returns';
-    	$data['booking_data'] = Booking::join('clients', 'clients.client_id', '=', 'bookings.client_id')->join('cars', 'cars.car_id', '=', 'bookings.car_id')->where('status', 'process')->get();
-    	$data['no'] = 1;
-    	return view('returns.index', $data);
+        $bookings = Booking::where('return_date', null)->get();
+        return view('returns.index', compact('bookings'));
     }
 
-    public function information(Request $request){
-    	$booking_code = $request->booking_code;
-    	//jika parameter kosong
-    	if($booking_code == ''){
-    		$request->session()->flash('warning', 'Select data rental from table below');
-        	return redirect()->route('returns.index');
-    	} 
+    protected function show($code){
+        $booking = Booking::where('booking_code', $code)->first();
+        $payment = Payment::where('booking_code', $code)->first();
+        
+        // fine / denda (*10%/hari)
+        if($booking->return_date_supposed < date('Y-m-d')){
+            $return_supposed = new DateTime($booking->return_date_supposed);
+            $return_now = new DateTime(date('Y-m-d'));
+            $selisih = $return_supposed->diff($return_now);
+            $late = $selisih->days;
+            $fine = $booking->car->price * 10 / 100 * $late;
+            $data['fine'] = $fine + $booking->car->price * $late;;
+    		$data['late'] = $late;
+        }else{
+            $data['fine'] = null;
+            $data['late'] = null;
+        }
 
-    	$booking_table = Booking::where('booking_code', $booking_code)->first();
-    	//jika booking code tidak ditemukan
-    	if($booking_table->count() == 0){
-    		$request->session()->flash('warning', 'Data rental not found!');
-        	return redirect()->route('returns.index');
-    	} 
+        $data['total'] = $booking->total_price - $payment->amount;
+        $data['dp'] = $payment->amount;
+        $data['now'] = Carbon::now()->toDateString();
+        // dd($data['now']);
 
-    	//denda (perhitungannya nambah 10% per harinya)
-    	if($booking_table->return_date_supposed <  date('Y-m-d')){	
-    		$return_supposed = new DateTime($booking_table->return_date_supposed);
-    		$return_now = new DateTime(date('Y-m-d'));
-    		$selisih = $return_supposed->diff($return_now);
-    		for($i=1; $i<=$selisih->days; $i++){
-    			$fine = ($booking_table->price * $i.'0')/100;
-    		}
-    		$data['fine'] = $fine;
-    		$data['late'] = $selisih->days;
-    	} else {
-    		$data['fine'] = null;
-    		$data['late'] = null;
-    	}
-
-    	
-    	$data['payment'] = Returns::where('booking_code',$booking_code)->get()->first();
-    	$data['data'] = $booking_table;
-    	$data['client'] = Client::find($booking_table->client_id);
-    	$data['car'] = Car::find($booking_table->car_id);
-    	$data['total'] = $booking_table->price + $data['fine'] - $data['payment']->amount;
-    	$data['title'] = 'Return Process';
-    	$data['menu'] = 6;
-
-    	return view('returns.information', $data);
+        return view('returns.show', compact('booking', 'data'));
     }
 
-    public function process(Request $request){
-    	$validate = $request->validate([
-    		'amount' => 'required|min:'.$request->total .'|numeric',
-    		'booking_code' => 'required',
-    	]);
-    	//kalau amount lebih besar dari total, otomatis data total yg jadi value amount
-    	//biar ga kelamaan ngitung males gw
-    	if($request->amount > $request->total){
-    		$request->amount = $request->total;
-    	}
+    protected function store(Request $request){
+        $booking = Booking::where('booking_code', $request->booking_code)->first()->update([
+            'total_price' => $request->total_price,
+            'fine' => $request->fine,
+            'return_date' => date('Y-m-d')
+        ]);
 
-    	//dd($request->toArray());
+        $car = Car::find($request->car_id);
+        $car->update([
+            'available' => 1,
+        ]);
 
-    	//update table booking
-    	$update_booking = Booking::where('booking_code', $request->booking_code)->update([
-    		'return_date' => date('Y-m-d'),
-    		'fine' => $request->fine,
-    		'status' => 'paid'
-    	]);
+        Payment::create([
+            'type' => 'repayment',
+            'amount' => $request->total_price,
+            'date' => date('Y-m-d'),
+            'booking_code' => $request->booking_code,
+            'client_id' => $request->client_id,
+        ]);
 
-    	//add to table payment
-    	Returns::create([
-    		'type' => $request->type,
-    		'amount' => $request->amount,
-    		'date' => date('Y-m-d'),
-    		'client_id' => $request->client_id,
-    		'employees_id' => Auth::user()->id,
-    		'booking_code' => $request->booking_code,
-    	]);
-
-    	//change car status to available
-    	$car = Car::find($request->car_id);
-        $car->available = '1';
-        $car->save();
-
-        $request->session()->flash('success', 'Return Proccess successfully!');
-        return redirect()->route('returns.index');
+        return redirect('/returns');
     }
 }

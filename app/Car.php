@@ -3,12 +3,17 @@
 namespace App;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Car extends Model
 {
-    protected $fillable = ['car_name', 'year', 'license_plat', 'price', 'type', 'brand_id', 'available'];
-    protected $primaryKey = 'car_id';
-    use SoftDeletes;
-    protected $dates = ['delete_at'];
+    protected $fillable = ['brand_id', 'car_name', 'plat_number', 'price', 'type', 'available', 'photo'];
+
+    public function brand()
+    {
+        return $this->belongsTo('App\Brand');
+    }
+
+    public function getPhoto(){
+        return asset('/images/car_images/'. $this->photo);
+    }
 }

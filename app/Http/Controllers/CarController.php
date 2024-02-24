@@ -3,13 +3,11 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Car;
 use App\Brand;
-use Illuminate\Support\Facades\DB;
+use App\Car;
 
-class CarController extends Controller
+class carController extends Controller
 {
-
     /**
      * Display a listing of the resource.
      *
@@ -17,30 +15,9 @@ class CarController extends Controller
      */
     public function index()
     {
-        $data['title'] = "Cars";
-        $data['menu'] = 1;
-        $cars = DB::table('cars')
-                        ->join('brands', 'cars.brand_id', '=', 'brands.brand_id')
-                        ->get()->toArray();
-        //ngereturn array dari query builder laravel
-        $data['cars'] = json_decode(json_encode($cars), true);
-        //catatan : besok2 pake notasi objek aja kalo nampilin data dari eloqeunt or dari db
-        $data['no'] = 1;
-        return view('car.index', $data);
-    }
-
-    /**
-     * Show the form for creating a new resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
-    public function create()
-    {
-        $data['title'] = "Add New Cars";
-        $data['menu'] = 1;
-        $data['brands'] = Brand::all();
-        
-        return view('car.create', $data);
+        $cars = Car::all();
+        $brands = Brand::all();
+        return view('cars.index', compact('brands', 'cars'));
     }
 
     /**
@@ -51,18 +28,14 @@ class CarController extends Controller
      */
     public function store(Request $request)
     {
-        $validate = $request->validate([
-            'car_name' => 'required',
-            'year' => 'required|numeric',
-            'license_plat' => 'required|max:10',
-            'price' => 'required|numeric',
-            'type' => 'required',
-            'brand_id' => 'required'
-        ]);
-
-        $insert = Car::create($request->toArray());
-
-        return redirect()->route('car.index');
+        $car = Car::create($request->all());
+        if($request->hasFile('photo'))
+        {
+            $request->file('photo')->move('images/car_images/', $request->file('photo')->getClientOriginalName());
+            $car->photo = $request->file('photo')->getClientOriginalName();
+            $car->save();
+        }
+        return redirect()->back();
     }
 
     /**
@@ -84,12 +57,7 @@ class CarController extends Controller
      */
     public function edit($id)
     {
-        $data['title'] = "Edit Cars";
-        $data['menu'] = 1;
-        $data['car'] = Car::find($id);
-        $data['brands'] = Brand::all();
-        
-        return view('car.edit', $data);
+        //
     }
 
     /**
@@ -101,19 +69,7 @@ class CarController extends Controller
      */
     public function update(Request $request, $id)
     {
-        $validate = $request->validate([
-            'car_name' => 'required',
-            'year' => 'required|numeric',
-            'license_plat' => 'required|max:10',
-            'price' => 'required|numeric',
-            'type' => 'required',
-            'brand_id' => 'required'
-        ]);
-
-        $update = Car::find($id)->update($request->toArray());
-        return redirect()->route('car.index');
-
-
+        //
     }
 
     /**
@@ -125,6 +81,6 @@ class CarController extends Controller
     public function destroy($id)
     {
         Car::destroy($id);
-        return redirect()->route('car.index');
+        return redirect()->back();
     }
 }

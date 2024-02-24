@@ -19,12 +19,16 @@ class HomeController extends Controller
     /**
      * Show the application dashboard.
      *
-     * @return \Illuminate\Http\Response
+     * @return \Illuminate\Contracts\Support\Renderable
      */
     public function index()
     {
-        $title = "Dashboard";
-        $menu = 0;
-        return view('home', compact('title', 'menu'));
+        return view('home');
+    }
+
+    public function logout(){
+        auth()->logout();
+        // redirect to homepage
+        return redirect('/login');
     }
 }

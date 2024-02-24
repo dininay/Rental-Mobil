@@ -1,105 +1,81 @@
 <?php
 
 namespace App\Http\Controllers;
-use Illuminate\Support\Facades\DB;
 
 use Illuminate\Http\Request;
-use App\Client;
 use App\Car;
+use App\Client;
 use App\Booking;
-use App\Returns;
+use App\Payment;
+use Illuminate\Support\Facades\Validator;
 
-class BookingController extends Controller
+class bookingController extends Controller
 {
-    public function index(){
-        $data['menu'] = 5;
-        $data['title'] = 'Booking';
-        $data['cars'] = Car::where('available', "1")->get();
-        return view('booking.index', $data);
+    /**
+     * Display a listing of the resource.
+     *
+     * @return \Illuminate\Http\Response
+     */
+    public function index()
+    {
+        $clients = Client::all();
+        $cars = Car::where('available', 1)->get();
+        return view('bookings.index', compact('cars', 'clients'));
     }
 
-    public function listMember(){
-        $get = $_GET['data'];
-        $data = DB::table('clients')->where('name', 'like', "%$get%")->get();
-    
-		$output = "<ul class='ul-client'>";
-		if(count($data) != 0){
-			foreach($data as $row){
-				$output .= "<li class='li-client'>".$row->client_id. " - ". $row->name ."</li>";
-			}
-		} else {
-			$output .= '<li class="li-client-null">Not Register Yet? <a href="" data-toggle="modal" data-target="#clientModal">Click here to add</a></li>';
-		}
-
-		echo $output;
-    }
-
-    public function createClient(request $request){
-        $validate = $request->validate([
-            'name' => 'required|string|max:150',
-            'nik' => 'required|integer|unique:clients',
-            'dob' => 'required',
-            'phone' => 'required|max:15',
-            'gender' => 'required',
-        ]);
-
-        if($validate) {
-            $insert = Client::create($request->toArray());
-            $request->session()->flash('success', 'Add client success! Type that name in form below');
-            return redirect()->route('booking.index');
-        }
-    }
-
-    public function calculate(Request $request){
-        //validate 
-        $validate = $request->validate([
-            'booking_code' => 'required|unique:bookings',
-            'order_date' => 'required',
-            'duration' => 'required',
-        ]);
-
-        //get return date
-        $order_duration = $request->duration;
-        $order_date = $request->order_date;
-        $return_date = date('Y-m-d', strtotime('+'.$order_duration.' days', strtotime($order_date)));
-
-        //get price total
-        $car = Car::find($request->car_id);
-        $total_price = $car->price * $order_duration;
-
-        //get dp minimum (30% from the price total)
-        $dp = ($total_price * 10) / 100;
-
-        //get input 
+    /**
+     * Show the form for creating a new resource.
+     *
+     * @return \Illuminate\Http\Response
+     */
+    public function calculate(Request $request)
+    {
         $data = $request->toArray();
 
-        //get client
-        $client = Client::find($request->client_id);
+        Validator::make($data, [
+            'booking_code' => ['required', 'string', 'unique:bookings'],
+        ]);
+            
+        $client = Client::where('id', $request->client_id)->first();
+        $car = Car::where('id', $request->car_id)->first();
 
-        $title = 'Detail Order';
-        $menu = '5';
-        
-        return view('booking.details', compact('return_date', 'data', 'total_price', 'car', 'dp', 'title', 'menu', 'client'));
-        
+        $order_date = $request->order_date;
+        $duration = $request->duration;
+
+        // return date / tanggal kembali, dimana menghitung dari tanggal order + durasi peminjaman
+        $return_date = date('Y-m-d', strtotime('+'.$duration.'days', strtotime($order_date)));
+
+        // harga total => harga mobil/day * durasi peminjaman
+        $total_price = $car->price * $duration;
+
+        // dp => 30% dari total harga
+        $dp = $total_price * 30 / 100;
+
+        return view('bookings.confirm', compact('client', 'car', 'return_date', 'data', 'total_price', 'dp'));
+
     }
 
-    public function process(Request $request){
-        //validate 
-        $validate = $request->validate([
-            'booking_code' => 'required|unique:bookings',
-            'order_date' => 'required',
-            'duration' => 'required',
-            'client_id' => 'required|integer',
-            'car_id' => 'required|integer',
-            'duration' => 'required|integer',
-            'return_date_supposed' => 'required',
-            'price' => 'required|integer',
-            'employees_id' => 'required',
-            'type' => 'required',
-            'amount' => 'required|integer'
+    /**
+     * Store a newly created resource in storage.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\Response
+     */
+    public function process(Request $request)
+    {
+        $data = $request->toArray();    
+        Validator::make($data, [
+            'booking_code' => ['required', 'unique:bookings'],
+            'order_date' => ['required'],
+            'duration' => ['required'],
+            'client_id' => ['required', 'integer'],
+            'car_id' => ['required','integer'],
+            'duration' => ['required','integer'],
+            'return_date_supposed' => ['required'],
+            'price' => ['required','integer'],
+            'type' => ['required'],
+            'amount' => ['required','integer']
         ]);
-       
-
 
         //insert to table booking first
         $insert_booking = Booking::create([
@@ -107,29 +83,69 @@ class BookingController extends Controller
             'order_date' => $request->order_date,
             'duration' => $request->duration,
             'return_date_supposed' => $request->return_date_supposed,
-            'price' => $request->price,
-            'status' => 'process',
-            'employees_id' => $request->employees_id,
+            'total_price' => $request->total_price,
             'car_id' => $request->car_id,
             'client_id' => $request->client_id,
         ]);
 
         //insert to payment
-        $insert_payment = Returns::create([
+        $insert_payment = Payment::create([
             'type' => $request->type,
             'amount' => $request->amount,
-            'date' => date('Y-m-d'),
             'client_id' => $request->client_id,
-            'employees_id' => $request->employees_id,
             'booking_code' => $request->booking_code
         ]);
-
-        //update car status to not available (0)
+        
         $car = Car::find($request->car_id);
         $car->available = '0';
         $car->save();
+        
+        return redirect('/home');
 
-        $request->session()->flash('success', 'Add Transaction success!');
-        return redirect()->route('booking.index');
+    }
+
+    /**
+     * Display the specified resource.
+     *
+     * @param  int  $id
+     * @return \Illuminate\Http\Response
+     */
+    public function show($id)
+    {
+        //
+    }
+
+    /**
+     * Show the form for editing the specified resource.
+     *
+     * @param  int  $id
+     * @return \Illuminate\Http\Response
+     */
+    public function edit($id)
+    {
+        //
+    }
+
+    /**
+     * Update the specified resource in storage.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  int  $id
+     * @return \Illuminate\Http\Response
+     */
+    public function update(Request $request, $id)
+    {
+        //
+    }
+
+    /**
+     * Remove the specified resource from storage.
+     *
+     * @param  int  $id
+     * @return \Illuminate\Http\Response
+     */
+    public function destroy($id)
+    {
+        //
     }
 }
